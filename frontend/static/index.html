@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Clip 前端演示</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #f5f7fb; color: #222; }
+    header { background: #111827; color: #fff; padding: 16px 24px; }
+    main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .tab { border: 0; border-radius: 8px; padding: 10px 14px; background: #dbe4ff; cursor: pointer; }
+    .tab.active { background: #3b82f6; color: #fff; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+    .status { font-size: 12px; margin-top: 8px; color: #6b7280; }
+    button { background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+    textarea, input, select { width: 100%; box-sizing: border-box; border: 1px solid #cfd4dc; border-radius: 8px; padding: 8px; }
+    textarea { min-height: 160px; resize: vertical; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .log { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; min-height: 140px; white-space: pre-wrap; }
+    .prompt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h2>AI Clip 运行演示台</h2>
+    <div>可视化展示每一步处理状态 + 在线调整 Prompt</div>
+  </header>
+  <main>
+    <div class="tabs">
+      <button class="tab active" data-panel="pipelinePanel">流程演示</button>
+      <button class="tab" data-panel="promptPanel">Prompt 配置</button>
+    </div>
+
+    <section id="pipelinePanel" class="panel active">
+      <div class="row">
+        <div>
+          <label>SRT 文件路径</label>
+          <input id="srtPath" placeholder="例如: /path/to/input.srt" />
+        </div>
+        <div>
+          <label>视频路径（Step6 必填）</label>
+          <input id="videoPath" placeholder="例如: /path/to/input.mp4" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>metadata 目录</label>
+          <input id="metadataDir" value="data/output/metadata" />
+        </div>
+        <div>
+          <label>output 目录</label>
+          <input id="outputDir" value="data/output" />
+        </div>
+      </div>
+      <div class="grid" id="stepCards"></div>
+      <h4>运行日志</h4>
+      <div id="runLog" class="log"></div>
+    </section>
+
+    <section id="promptPanel" class="panel">
+      <div class="row">
+        <div>
+          <label>Prompt 分类目录</label>
+          <select id="categorySelect"></select>
+        </div>
+        <div style="display:flex; align-items:flex-end;">
+          <button id="reloadPrompts">重新加载 Prompt</button>
+        </div>
+      </div>
+      <div id="promptEditors" class="prompt-grid"></div>
+    </section>
+  </main>
+
+  <script>
+    const runLog = document.getElementById('runLog');
+    const stepCards = document.getElementById('stepCards');
+    const categorySelect = document.getElementById('categorySelect');
+    const promptEditors = document.getElementById('promptEditors');
+
+    function appendLog(text) {
+      runLog.textContent += `${new Date().toLocaleTimeString()} - ${text}\n`;
+    }
+
+    async function loadSteps() {
+      const resp = await fetch('/api/steps');
+      const data = await resp.json();
+      stepCards.innerHTML = '';
+      data.steps.forEach(step => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <h4>${step.name}</h4>
+          <div>${step.desc}</div>
+          <button data-step="${step.id}">运行这一步</button>
+          <div id="status-${step.id}" class="status">状态：未开始</div>
+        `;
+        stepCards.appendChild(card);
+      });
+
+      stepCards.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => runSingleStep(btn.dataset.step));
+      });
+    }
+
+    async function runSingleStep(stepId) {
+      const statusDom = document.getElementById(`status-${stepId}`);
+      statusDom.textContent = '状态：运行中...';
+
+      const payload = {
+        step_id: stepId,
+        srt_path: document.getElementById('srtPath').value,
+        video_path: document.getElementById('videoPath').value,
+        metadata_dir: document.getElementById('metadataDir').value,
+        output_dir: document.getElementById('outputDir').value,
+      };
+
+      appendLog(`开始执行 ${stepId}`);
+      const resp = await fetch('/api/run-step', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+
+      if (data.ok) {
+        statusDom.textContent = `状态：完成，结果：${JSON.stringify(data.result)}`;
+        appendLog(`${stepId} 执行完成`);
+      } else {
+        statusDom.textContent = `状态：失败，错误：${data.error}`;
+        appendLog(`${stepId} 执行失败：${data.error}`);
+      }
+    }
+
+    async function loadPrompts() {
+      const category = categorySelect.value || 'default';
+      const resp = await fetch(`/api/prompts?category=${encodeURIComponent(category)}`);
+      const data = await resp.json();
+
+      if (!categorySelect.options.length) {
+        categorySelect.innerHTML = data.categories.map(c => `<option value="${c}">${c}</option>`).join('');
+        categorySelect.value = data.active_category;
+      }
+
+      promptEditors.innerHTML = '';
+      Object.entries(data.prompts).forEach(([promptName, content]) => {
+        const editor = document.createElement('div');
+        editor.className = 'card';
+        editor.innerHTML = `
+          <h4>${promptName}</h4>
+          <textarea id="prompt-${promptName}">${content}</textarea>
+          <button data-prompt="${promptName}">保存</button>
+          <div id="save-${promptName}" class="status"></div>
+        `;
+        promptEditors.appendChild(editor);
+      });
+
+      promptEditors.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => savePrompt(btn.dataset.prompt));
+      });
+    }
+
+    async function savePrompt(promptName) {
+      const textarea = document.getElementById(`prompt-${promptName}`);
+      const status = document.getElementById(`save-${promptName}`);
+      status.textContent = '保存中...';
+
+      const resp = await fetch('/api/prompts/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: categorySelect.value || 'default',
+          prompt_name: promptName,
+          content: textarea.value,
+        })
+      });
+      const data = await resp.json();
+      status.textContent = data.ok ? `已保存: ${data.path}` : `保存失败: ${data.error}`;
+    }
+
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(tab.dataset.panel).classList.add('active');
+      });
+    });
+
+    categorySelect.addEventListener('change', loadPrompts);
+    document.getElementById('reloadPrompts').addEventListener('click', loadPrompts);
+
+    loadSteps();
+    loadPrompts();
+  </script>
+</body>
+</html>

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Clip 拆条台</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="topbar">
+    <strong>AI Clip 拆条演示</strong>
+    <nav>
+      <a href="/">拆条</a>
+      <a href="/prompts">Prompt 编辑</a>
+    </nav>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <h2 class="title">一键拆条</h2>
+      <p class="desc">视频地址必填，字幕地址选填。点击「开始拆条」后将依次展示每一步输出，完成后自动跳转结果页。</p>
+      <div class="form-grid">
+        <div>
+          <label>视频地址（必填）</label>
+          <input id="videoPath" placeholder="例如: /path/to/video.mp4" />
+        </div>
+        <div>
+          <label>字幕地址（选填）</label>
+          <input id="srtPath" placeholder="例如: /path/to/video.srt" />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <button id="runBtn">开始拆条</button>
+      </div>
+    </div>
+
+    <div class="steps" id="steps"></div>
+  </div>
+
+  <script>
+    const stepsEl = document.getElementById('steps');
+
+    const stepNameMap = {
+      step1: 'Step 1 大纲提取',
+      step2: 'Step 2 时间点提取',
+      step3: 'Step 3 推荐理由评分',
+      step4: 'Step 4 标题生成',
+      step5: 'Step 5 主题聚类',
+      step6: 'Step 6 视频导出',
+    };
+
+    function renderLoadingSteps() {
+      stepsEl.innerHTML = Object.entries(stepNameMap).map(([id, name]) => `
+        <div class="step" id="${id}">
+          <div class="step-head">
+            <strong>${name}</strong>
+            <span class="badge">等待中</span>
+          </div>
+          <pre>等待执行...</pre>
+        </div>
+      `).join('');
+    }
+
+    function updateStep(step) {
+      const box = document.getElementById(step.id);
+      if (!box) return;
+      box.querySelector('.badge').textContent = '完成';
+      box.querySelector('pre').textContent = JSON.stringify(step.preview, null, 2);
+    }
+
+    async function runPipeline() {
+      const videoPath = document.getElementById('videoPath').value.trim();
+      const srtPath = document.getElementById('srtPath').value.trim();
+      if (!videoPath) {
+        alert('请先填写视频地址');
+        return;
+      }
+
+      renderLoadingSteps();
+      const runBtn = document.getElementById('runBtn');
+      runBtn.disabled = true;
+      runBtn.textContent = '拆条中，请稍候...';
+
+      try {
+        const resp = await fetch('/api/run-pipeline', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ video_path: videoPath, srt_path: srtPath }),
+        });
+        const data = await resp.json();
+        if (!data.ok) throw new Error(data.error || '运行失败');
+
+        data.summary.steps.forEach(updateStep);
+        setTimeout(() => {
+          window.location.href = `/results?id=${encodeURIComponent(data.run_id)}`;
+        }, 800);
+      } catch (err) {
+        alert(`拆条失败：${err.message}`);
+      } finally {
+        runBtn.disabled = false;
+        runBtn.textContent = '开始拆条';
+      }
+    }
+
+    document.getElementById('runBtn').addEventListener('click', runPipeline);
+    renderLoadingSteps();
+  </script>
+</body>
+</html>

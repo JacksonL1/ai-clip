@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>拆条结果</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="topbar">
+    <strong>拆条结果</strong>
+    <nav>
+      <a href="/">重新拆条</a>
+      <a href="/prompts">Prompt 编辑</a>
+    </nav>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <h2 class="title">结果总览</h2>
+      <p class="desc" id="meta"></p>
+      <div class="steps" id="stepList"></div>
+    </div>
+
+    <div class="card" style="margin-top: 16px;">
+      <h3 class="title">切片视频</h3>
+      <p class="desc">显示封面缩略图与标题，可直接预览视频。</p>
+      <div class="result-grid" id="clipGrid"></div>
+    </div>
+  </div>
+
+  <script>
+    function getRunId() {
+      const p = new URLSearchParams(window.location.search);
+      return p.get('id') || '';
+    }
+
+    function renderSteps(steps) {
+      const stepList = document.getElementById('stepList');
+      stepList.innerHTML = steps.map(step => `
+        <div class="step">
+          <div class="step-head">
+            <strong>${step.name}</strong>
+            <span class="badge">${step.count ?? 0}</span>
+          </div>
+          <pre>${JSON.stringify(step.preview, null, 2)}</pre>
+        </div>
+      `).join('');
+    }
+
+    function renderClips(clips) {
+      const clipGrid = document.getElementById('clipGrid');
+      if (!clips.length) {
+        clipGrid.innerHTML = '<div class="desc">没有生成可展示的切片。</div>';
+        return;
+      }
+      clipGrid.innerHTML = clips.map(clip => `
+        <div class="clip-card">
+          ${clip.thumbnail_url ? `<img class="thumb" src="${clip.thumbnail_url}" alt="${clip.title}"/>` : `<div class="thumb"></div>`}
+          <div class="clip-body">
+            <h4 class="clip-title">${clip.title}</h4>
+            <video src="${clip.video_url}" controls style="width:100%; border-radius: 8px;"></video>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function loadResult() {
+      const runId = getRunId();
+      const resp = await fetch(`/api/run?id=${encodeURIComponent(runId)}`);
+      const data = await resp.json();
+
+      if (data.error) {
+        alert(data.error);
+        return;
+      }
+
+      document.getElementById('meta').textContent = `任务ID: ${data.run_id}，处理耗时: ${data.duration_seconds}s，视频: ${data.video_path}`;
+      renderSteps(data.steps || []);
+      renderClips(data.clips || []);
+    }
+
+    loadResult();
+  </script>
+</body>
+</html>

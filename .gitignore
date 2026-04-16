@@ -1,0 +1,6 @@
+/.idea
+/core/__pycache__
+/core/data
+/data
+/pipeline/__pycache__
+/utils/__pycache__

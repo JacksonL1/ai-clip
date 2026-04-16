@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prompt 编辑</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="topbar">
+    <strong>Prompt 编辑器</strong>
+    <nav>
+      <a href="/">拆条</a>
+      <a href="/prompts">Prompt 编辑</a>
+    </nav>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <h2 class="title">Prompt 文件编辑</h2>
+      <p class="desc">左侧选择文件，右侧编辑内容并保存。</p>
+      <div class="form-grid" style="margin-bottom: 12px;">
+        <div>
+          <label>分类目录</label>
+          <select id="category"></select>
+        </div>
+        <div style="display:flex; align-items:flex-end; gap: 8px;">
+          <button class="secondary" id="reloadBtn">刷新文件列表</button>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="file-list" id="fileList"></div>
+        <div>
+          <label id="editingFile">当前文件：-</label>
+          <textarea id="editor"></textarea>
+          <div style="margin-top: 10px;">
+            <button id="saveBtn">保存</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const categoryEl = document.getElementById('category');
+    const fileListEl = document.getElementById('fileList');
+    const editorEl = document.getElementById('editor');
+    const editingFileEl = document.getElementById('editingFile');
+
+    let currentFile = '';
+
+    async function loadFileList() {
+      const category = categoryEl.value || 'default';
+      const resp = await fetch(`/api/prompt-files?category=${encodeURIComponent(category)}`);
+      const data = await resp.json();
+
+      if (!categoryEl.options.length) {
+        categoryEl.innerHTML = data.categories.map(c => `<option value="${c}">${c}</option>`).join('');
+        categoryEl.value = data.active_category;
+      }
+
+      fileListEl.innerHTML = data.files.map(file => `<div class="file-item" data-file="${file}">${file}</div>`).join('');
+      fileListEl.querySelectorAll('.file-item').forEach(el => {
+        el.addEventListener('click', () => openFile(el.dataset.file));
+      });
+
+      if (data.files.length > 0) {
+        openFile(data.files[0]);
+      }
+    }
+
+    async function openFile(filename) {
+      currentFile = filename;
+      editingFileEl.textContent = `当前文件：${filename}`;
+      fileListEl.querySelectorAll('.file-item').forEach(item => {
+        item.classList.toggle('active', item.dataset.file === filename);
+      });
+
+      const category = categoryEl.value || 'default';
+      const resp = await fetch(`/api/prompt-file?category=${encodeURIComponent(category)}&file=${encodeURIComponent(filename)}`);
+      const data = await resp.json();
+      editorEl.value = data.content || '';
+    }
+
+    async function saveFile() {
+      if (!currentFile) return alert('请先在左侧选择文件');
+
+      const resp = await fetch('/api/prompt-file/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: categoryEl.value || 'default',
+          file: currentFile,
+          content: editorEl.value,
+        }),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        alert('保存成功');
+      } else {
+        alert(`保存失败：${data.error}`);
+      }
+    }
+
+    document.getElementById('saveBtn').addEventListener('click', saveFile);
+    document.getElementById('reloadBtn').addEventListener('click', loadFileList);
+    categoryEl.addEventListener('change', loadFileList);
+
+    loadFileList();
+  </script>
+</body>
+</html>
